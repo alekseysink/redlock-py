@@ -65,8 +65,14 @@ class Redlock(object):
         if len(self.servers) < self.quorum:
             raise CannotObtainLock(
                 "Failed to connect to the majority of redis servers")
-        self.retry_count = retry_count or self.default_retry_count
-        self.retry_delay = retry_delay or self.default_retry_delay
+
+        self.retry_count = retry_count
+        if self.retry_count is None:
+            self.retry_count = self.default_retry_count
+
+        self.retry_delay = retry_delay
+        if self.retry_delay is None:
+            self.retry_delay = self.default_retry_delay
 
     def lock_instance(self, server, resource, val, ttl):
         try:
@@ -95,7 +101,8 @@ class Redlock(object):
         drift = int(ttl * self.clock_drift_factor) + 2
 
         redis_errors = list()
-        while retry < self.retry_count:
+        restart_attempt = True
+        while restart_attempt:
             n = 0
             start_time = int(time.time() * 1000)
             del redis_errors[:]
@@ -117,8 +124,12 @@ class Redlock(object):
                         self.unlock_instance(server, resource, val)
                     except:
                         pass
+
                 retry += 1
-                time.sleep(self.retry_delay)
+                restart_attempt = retry < self.retry_count
+                if restart_attempt:
+                    time.sleep(self.retry_delay)
+
         return False
 
     def unlock(self, lock):
